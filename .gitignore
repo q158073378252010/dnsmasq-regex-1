@@ -1,1 +1,8 @@
 *.o
+src/.copts*
+src/dnsmasq
+
+# eclipse
+.settings
+.project
+.cproject
