@@ -494,11 +494,11 @@ union mysockaddr {
 #define SERV_COUNTED         512  /* workspace for log code */
 #define SERV_USE_RESOLV     1024  /* forward this domain in the normal way */
 #define SERV_NO_REBIND      2048  /* inhibit dns-rebind protection */
-#define SERV_IS_REGEX       4096  /* server entry is a regex */
 #define SERV_FROM_FILE      4096  /* read from --servers-file */
 #define SERV_LOOP           8192  /* server causes forwarding loop */
 #define SERV_DO_DNSSEC     16384  /* Validate DNSSEC when using this server */
 #define SERV_GOT_TCP       32768  /* Got some data from the TCP connection */
+#define SERV_IS_REGEX      65536  /* server entry is a regex */
 
 struct serverfd {
   int fd;
