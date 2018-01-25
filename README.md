@@ -1,5 +1,7 @@
 ## dnsmasq with regex and extended cache limit
 
+Not support for regex ipset yet.
+
 Version: 2.78
 
 Inspired by these repos:
@@ -39,3 +41,7 @@ no-poll
 
 cache-size=100000
 ```
+
+## Openwrt/LEDE package
+
+Please check this page: [dnsmasq-regex-openwrt](https://github.com/lixingcong/dnsmasq-regex-openwrt)
