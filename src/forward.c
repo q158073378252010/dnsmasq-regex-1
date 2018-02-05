@@ -361,7 +361,12 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 #endif
 
       /* retry on existing query, send to all available servers  */
-      domain = forward->sentto->domain;
+#ifdef HAVE_REGEX
+      if(forward->sentto->flags & SERV_IS_REGEX)
+          domain = daemon->namebuff;
+      else
+#endif
+          domain = forward->sentto->domain;
       forward->sentto->failed_queries++;
       if (!option_bool(OPT_ORDER))
 	{
