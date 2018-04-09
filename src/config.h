@@ -122,6 +122,10 @@ HAVE_LOOP
 
 HAVE_INOTIFY
    use the Linux inotify facility to efficiently re-read configuration files.
+   
+HAVE_REGEX
+   Define this if you want to link against lib pcre to get regex
+   support in "address=" matches
 
 NO_ID
    Don't report *.bind CHAOS info to clients, forward such requests upstream instead.
@@ -178,6 +182,7 @@ RESOLVFILE
 /* #define HAVE_LIBIDN2 */
 /* #define HAVE_CONNTRACK */
 /* #define HAVE_DNSSEC */
+#define HAVE_REGEX
 
 
 /* Default locations for important system files. */
@@ -395,6 +400,10 @@ static char *compile_opts =
 "no-"
 #endif
 "i18n "
+#ifndef HAVE_REGEX
+"no-"
+#endif
+"regex "
 #if defined(HAVE_LIBIDN2)
 "IDN2 "
 #else
