@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2017 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2018 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -147,38 +147,11 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
       }
     else if (serv->flags & SERV_HAS_DOMAIN)
       {
-	unsigned int domainlen = matchlen;
-	int serverhit = 0;
-
-#ifdef HAVE_REGEX
-	if (serv->flags & SERV_IS_REGEX)
-	  {
-	    int captcount = 0;
-	    if (pcre_fullinfo(serv->regex, serv->pextra, PCRE_INFO_CAPTURECOUNT, &captcount) == 0)
-	      {
-		/* C99 dyn-array, or alloca must be used */
-		int ovect[(captcount + 1) * 3];
-		if (pcre_exec(serv->regex, serv->pextra, qdomain, namelen, 0, 0, ovect, (captcount + 1) * 3) > 0)
-		  {
-		    domainlen = (unsigned int) (ovect[1] - ovect[0]);
-		    if (domainlen >= matchlen)
-		      serverhit = 1;
-		  }
-	      }
-	  }
-	else
-#endif
-	  {
-	    char *matchstart;
-	    domainlen = strlen(serv->domain);
-	    matchstart = qdomain + namelen - domainlen;
-	    if (namelen >= domainlen &&
-	        hostname_isequal(matchstart, serv->domain) &&
-	        (domainlen == 0 || namelen == domainlen || *(matchstart-1) == '.' ))
-	       serverhit = 1;
-	  }
-
-	if (serverhit)
+	unsigned int domainlen = strlen(serv->domain);
+	char *matchstart = qdomain + namelen - domainlen;
+	if (namelen >= domainlen &&
+	    hostname_isequal(matchstart, serv->domain) &&
+	    (domainlen == 0 || namelen == domainlen || *(matchstart-1) == '.' ))
 	  {
 	    if ((serv->flags & SERV_NO_REBIND) && norebind)	
 	      *norebind = 1;
@@ -205,11 +178,6 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
 		if (domainlen >= matchlen)
 		  {
 		    *type = serv->flags & (SERV_HAS_DOMAIN | SERV_USE_RESOLV | SERV_NO_REBIND | SERV_DO_DNSSEC);
-#ifdef HAVE_REGEX
-		    if (serv->flags & SERV_IS_REGEX)
-			*domain = qdomain;
-		    else
-#endif
 		    *domain = serv->domain;
 		    matchlen = domainlen;
 		    if (serv->flags & SERV_NO_ADDR)
@@ -261,27 +229,6 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
   return  flags;
 }
 
-static int match_domain_for_forward(char *domain, struct server *serv)
-{
-  int ret_val = 0;
-  if(serv->flags & SERV_IS_REGEX)
-    {
-#ifdef HAVE_REGEX
-      int captcount = 0;
-      if (pcre_fullinfo(serv->regex, serv->pextra, PCRE_INFO_CAPTURECOUNT, &captcount) == 0)
-	{
-	  /* C99 dyn-array, or alloca must be used */
-	  int ovect[(captcount + 1) * 3];
-	  ret_val = pcre_exec(serv->regex, serv->pextra, domain,
-	                      strlen(domain), 0, 0, ovect, (captcount + 1) * 3) > 0;
-	}
-#endif
-    }
-  else
-    ret_val = hostname_isequal(domain, serv->domain);
-  return ret_val;
-}
-
 static int forward_query(int udpfd, union mysockaddr *udpaddr,
 			 struct all_addr *dst_addr, unsigned int dst_iface,
 			 struct dns_header *header, size_t plen, time_t now, 
@@ -325,14 +272,13 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	  while (forward->blocking_query)
 	    forward = forward->blocking_query;
 	   
-	  forward->flags |= FREC_TEST_PKTSZ;
-	  
 	  blockdata_retrieve(forward->stash, forward->stash_len, (void *)header);
 	  plen = forward->stash_len;
 	  
+	  forward->flags |= FREC_TEST_PKTSZ;
 	  if (find_pseudoheader(header, plen, NULL, &pheader, &is_sign, NULL) && !is_sign)
 	    PUTSHORT(SAFE_PKTSZ, pheader);
-
+	  
 	  if (forward->sentto->addr.sa.sa_family == AF_INET) 
 	    log_query(F_NOEXTRA | F_DNSSEC | F_IPV4, "retry", (struct all_addr *)&forward->sentto->addr.in.sin_addr, "dnssec");
 #ifdef HAVE_IPV6
@@ -361,12 +307,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 #endif
 
       /* retry on existing query, send to all available servers  */
-#ifdef HAVE_REGEX
-      if(forward->sentto->flags & SERV_IS_REGEX)
-          domain = daemon->namebuff;
-      else
-#endif
-          domain = forward->sentto->domain;
+      domain = forward->sentto->domain;
       forward->sentto->failed_queries++;
       if (!option_bool(OPT_ORDER))
 	{
@@ -458,31 +399,22 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
       struct server *firstsentto = start;
       int subnet, forwarded = 0;
       size_t edns0_len;
-
+      unsigned char *oph = find_pseudoheader(header, plen, NULL, NULL, NULL, NULL);
+      unsigned char *pheader;
+      
       /* If a query is retried, use the log_id for the retry when logging the answer. */
       forward->log_id = daemon->log_id;
       
-      edns0_len  = add_edns0_config(header, plen, ((unsigned char *)header) + PACKETSZ, &forward->source, now, &subnet);
+      plen = add_edns0_config(header, plen, ((unsigned char *)header) + PACKETSZ, &forward->source, now, &subnet);
       
-      if (edns0_len != plen)
-	{
-	  plen = edns0_len;
-	  forward->flags |= FREC_ADDED_PHEADER;
-	  
-	  if (subnet)
-	    forward->flags |= FREC_HAS_SUBNET;
-	}
+      if (subnet)
+	forward->flags |= FREC_HAS_SUBNET;
       
 #ifdef HAVE_DNSSEC
       if (option_bool(OPT_DNSSEC_VALID) && do_dnssec)
 	{
-	  size_t new = add_do_bit(header, plen, ((unsigned char *) header) + PACKETSZ);
-	 
-	  if (new != plen)
-	    forward->flags |= FREC_ADDED_PHEADER;
-
-	  plen = new;
-	      
+	  plen = add_do_bit(header, plen, ((unsigned char *) header) + PACKETSZ);
+	 	      
 	  /* For debugging, set Checking Disabled, otherwise, have the upstream check too,
 	     this allows it to select auth servers when one is returning bad data. */
 	  if (option_bool(OPT_DNSSEC_DEBUG))
@@ -491,9 +423,20 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	}
 #endif
 
-      /* If we're sending an EDNS0 with any options, we can't recreate the query from a reply. */
-      if (find_pseudoheader(header, plen, &edns0_len, NULL, NULL, NULL) && edns0_len > 11)
-	forward->flags |= FREC_HAS_EXTRADATA;
+      if (find_pseudoheader(header, plen, &edns0_len, &pheader, NULL, NULL))
+	{
+	  /* If there wasn't a PH before, and there is now, we added it. */
+	  if (!oph)
+	    forward->flags |= FREC_ADDED_PHEADER;
+
+	  /* If we're sending an EDNS0 with any options, we can't recreate the query from a reply. */
+	  if (edns0_len > 11)
+	    forward->flags |= FREC_HAS_EXTRADATA;
+
+	  /* Reduce udp size on retransmits. */
+	  if (forward->flags & FREC_TEST_PKTSZ)
+	    PUTSHORT(SAFE_PKTSZ, pheader);
+	}
       
       while (1)
 	{ 
@@ -502,8 +445,8 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	     must be NULL also. */
 	  
 	  if (type == (start->flags & SERV_TYPE) &&
-	      !(start->flags & (SERV_LITERAL_ADDRESS | SERV_LOOP)) &&
-	      (type != SERV_HAS_DOMAIN || match_domain_for_forward(domain, start)))
+	      (type != SERV_HAS_DOMAIN || hostname_isequal(domain, start->domain)) &&
+	      !(start->flags & (SERV_LITERAL_ADDRESS | SERV_LOOP)))
 	    {
 	      int fd;
 
@@ -621,7 +564,7 @@ static size_t process_reply(struct dns_header *header, time_t now, struct server
   char **sets = 0;
   int munged = 0, is_sign;
   size_t plen; 
-
+  
   (void)ad_reqd;
   (void)do_bit;
   (void)bogusanswer;
@@ -825,7 +768,11 @@ void reply_query(int fd, int family, time_t now)
   
   if (!server)
     return;
-  
+
+  /* If sufficient time has elapsed, try and expand UDP buffer size again. */
+  if (difftime(now, server->pktsz_reduced) > UDP_TEST_TIME)
+    server->edns_pktsz = daemon->edns_pktsz;
+
 #ifdef HAVE_DNSSEC
   hash = hash_questions(header, n, daemon->namebuff);
 #else
@@ -855,10 +802,20 @@ void reply_query(int fd, int family, time_t now)
       unsigned char *pheader;
       size_t plen;
       int is_sign;
-      
+
+      /* In strict order mode, there must be a server later in the chain
+	 left to send to, otherwise without the forwardall mechanism,
+	 code further on will cycle around the list forwever if they
+	 all return REFUSED. Note that server is always non-NULL before 
+	 this executes. */
+      if (option_bool(OPT_ORDER))
+	for (server = forward->sentto->next; server; server = server->next)
+	  if (!(server->flags & (SERV_LITERAL_ADDRESS | SERV_HAS_DOMAIN | SERV_FOR_NODOTS | SERV_NO_ADDR | SERV_LOOP)))
+	    break;
+
       /* recreate query from reply */
       pheader = find_pseudoheader(header, (size_t)n, &plen, NULL, &is_sign, NULL);
-      if (!is_sign)
+      if (!is_sign && server)
 	{
 	  header->ancount = htons(0);
 	  header->nscount = htons(0);
@@ -902,12 +859,18 @@ void reply_query(int fd, int family, time_t now)
     }
  
   /* We tried resending to this server with a smaller maximum size and got an answer.
-     Make that permanent. To avoid reduxing the packet size for an single dropped packet,
+     Make that permanent. To avoid reduxing the packet size for a single dropped packet,
      only do this when we get a truncated answer, or one larger than the safe size. */
-  if (server && (forward->flags & FREC_TEST_PKTSZ) && 
+  if (server && server->edns_pktsz > SAFE_PKTSZ && (forward->flags & FREC_TEST_PKTSZ) && 
       ((header->hb3 & HB3_TC) || n >= SAFE_PKTSZ))
-    server->edns_pktsz = SAFE_PKTSZ;
-  
+    {
+      server->edns_pktsz = SAFE_PKTSZ;
+      server->pktsz_reduced = now;
+      prettyprint_addr(&server->addr, daemon->addrbuff);
+      my_syslog(LOG_WARNING, _("reducing DNS packet size for nameserver %s to %d"), daemon->addrbuff, SAFE_PKTSZ);
+    }
+
+    
   /* If the answer is an error, keep the forward record in place in case
      we get a good reply from another server. Kill it when we've
      had replies from all to avoid filling the forwarding table when
@@ -916,7 +879,7 @@ void reply_query(int fd, int family, time_t now)
       (RCODE(header) != REFUSED && RCODE(header) != SERVFAIL))
     {
       int check_rebind = 0, no_cache_dnssec = 0, cache_secure = 0, bogusanswer = 0;
-
+      
       if (option_bool(OPT_NO_REBIND))
 	check_rebind = !(forward->flags & FREC_NOREBIND);
       
@@ -956,7 +919,8 @@ void reply_query(int fd, int family, time_t now)
 		    status = dnssec_validate_ds(now, header, n, daemon->namebuff, daemon->keyname, forward->class);
 		  else
 		    status = dnssec_validate_reply(now, header, n, daemon->namebuff, daemon->keyname, &forward->class, 
-						   option_bool(OPT_DNSSEC_NO_SIGN) && (server->flags & SERV_DO_DNSSEC), NULL, NULL);
+						   option_bool(OPT_DNSSEC_NO_SIGN) && (server->flags & SERV_DO_DNSSEC),
+						   NULL, NULL);
 		}
 	      
 	      /* Can't validate, as we're missing key data. Put this
@@ -1153,7 +1117,7 @@ void reply_query(int fd, int family, time_t now)
 	  header->hb4 |= HB4_RA; /* recursion if available */
 #ifdef HAVE_DNSSEC
 	  /* We added an EDNSO header for the purpose of getting DNSSEC RRs, and set the value of the UDP payload size
-	     greater than the no-EDNS0-implied 512 to have if space for the RRSIGS. If, having stripped them and the EDNS0
+	     greater than the no-EDNS0-implied 512 to have space for the RRSIGS. If, having stripped them and the EDNS0
              header, the answer is still bigger than 512, truncate it and mark it so. The client then retries with TCP. */
 	  if (option_bool(OPT_DNSSEC_VALID) && (forward->flags & FREC_ADDED_PHEADER) && (nn > PACKETSZ))
 	    {
@@ -1540,7 +1504,8 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
 	new_status = dnssec_validate_ds(now, header, n, name, keyname, class);
       else 
 	new_status = dnssec_validate_reply(now, header, n, name, keyname, &class,
-					   option_bool(OPT_DNSSEC_NO_SIGN) && (server->flags & SERV_DO_DNSSEC), NULL, NULL);
+					   option_bool(OPT_DNSSEC_NO_SIGN) && (server->flags & SERV_DO_DNSSEC),
+					   NULL, NULL);
       
       if (new_status != STAT_NEED_DS && new_status != STAT_NEED_KEY)
 	break;
@@ -1609,7 +1574,7 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
 		  setsockopt(server->tcpfd, SOL_SOCKET, SO_MARK, &mark, sizeof(unsigned int));
 #endif	
 		
-		if (!local_bind(server->tcpfd,  &server->source_addr, server->interface, 1) ||
+		if (!local_bind(server->tcpfd,  &server->source_addr, server->interface, 0, 1) ||
 		    connect(server->tcpfd, &server->addr.sa, sa_len(&server->addr)) == -1)
 		  {
 		    close(server->tcpfd);
@@ -1841,17 +1806,30 @@ unsigned char *tcp_request(int confd, time_t now,
 	      struct all_addr *addrp = NULL;
 	      int type = SERV_DO_DNSSEC;
 	      char *domain = NULL;
-	      size_t new_size = add_edns0_config(header, size, ((unsigned char *) header) + 65536, &peer_addr, now, &check_subnet);
+	      unsigned char *oph = find_pseudoheader(header, size, NULL, NULL, NULL, NULL);
 
-	      if (size != new_size)
-		{
-		  added_pheader = 1;
-		  size = new_size;
-		}
-	      
+	      size = add_edns0_config(header, size, ((unsigned char *) header) + 65536, &peer_addr, now, &check_subnet);
+
 	      if (gotname)
 		flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind);
-	      
+
+#ifdef HAVE_DNSSEC
+	      if (option_bool(OPT_DNSSEC_VALID) && (type & SERV_DO_DNSSEC))
+		{
+		  size = add_do_bit(header, size, ((unsigned char *) header) + 65536);
+		  
+		  /* For debugging, set Checking Disabled, otherwise, have the upstream check too,
+		     this allows it to select auth servers when one is returning bad data. */
+		  if (option_bool(OPT_DNSSEC_DEBUG))
+		    header->hb4 |= HB4_CD;
+		}
+#endif
+
+	      /* Check if we added a pheader on forwarding - may need to
+		 strip it from the reply. */
+	      if (!oph && find_pseudoheader(header, size, NULL, NULL, NULL, NULL))
+		added_pheader = 1;
+
 	      type &= ~SERV_DO_DNSSEC;
 	      
 	      if (type != 0  || option_bool(OPT_ORDER) || !daemon->last_server)
@@ -1905,7 +1883,7 @@ unsigned char *tcp_request(int confd, time_t now,
 			    setsockopt(last_server->tcpfd, SOL_SOCKET, SO_MARK, &mark, sizeof(unsigned int));
 #endif	
 		      
-			  if ((!local_bind(last_server->tcpfd,  &last_server->source_addr, last_server->interface, 1) ||
+			  if ((!local_bind(last_server->tcpfd,  &last_server->source_addr, last_server->interface, 0, 1) ||
 			       connect(last_server->tcpfd, &last_server->addr.sa, sa_len(&last_server->addr)) == -1))
 			    {
 			      close(last_server->tcpfd);
@@ -1916,24 +1894,6 @@ unsigned char *tcp_request(int confd, time_t now,
 			  last_server->flags &= ~SERV_GOT_TCP;
 			}
 		      
-#ifdef HAVE_DNSSEC
-		      if (option_bool(OPT_DNSSEC_VALID) && (last_server->flags & SERV_DO_DNSSEC))
-			{
-			  new_size = add_do_bit(header, size, ((unsigned char *) header) + 65536);
-			  
-			  if (size != new_size)
-			    {
-			      added_pheader = 1;
-			      size = new_size;
-			    }
-			  
-			  /* For debugging, set Checking Disabled, otherwise, have the upstream check too,
-			     this allows it to select auth servers when one is returning bad data. */
-			  if (option_bool(OPT_DNSSEC_DEBUG))
-			    header->hb4 |= HB4_CD;
-			}
-#endif
-					      
 		      *length = htons(size);
 
 		      /* get query name again for logging - may have been overwritten */

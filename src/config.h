@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2017 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2018 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #define TIMEOUT 10 /* drop UDP queries after TIMEOUT seconds */
 #define FORWARD_TEST 50 /* try all servers every 50 queries */
 #define FORWARD_TIME 20 /* or 20 seconds */
+#define UDP_TEST_TIME 60 /* How often to reset our idea of max packet size. */
 #define SERVERS_LOGGED 30 /* Only log this many servers when logging state */
 #define LOCALS_LOGGED 8 /* Only log this many local addresses when logging state */
 #define RANDOM_SOCKS 64 /* max simultaneous random ports */
@@ -105,10 +106,6 @@ HAVE_CONNTRACK
    a build-dependency on libnetfilter_conntrack, but the resulting binary will
    still run happily on a kernel without conntrack support.
 
-HAVE_REGEX
-   Define this if you want to link against lib pcre to get regex
-   support in "address=" matches
-   
 HAVE_IPSET
     define this to include the ability to selectively add resolved ip addresses
     to given ipsets.
@@ -140,9 +137,6 @@ NO_INOTIFY
    otherwise be enabled automatically (HAVE_IPV6, >2Gb file sizes) or 
    which are enabled  by default in the distributed source tree. Building dnsmasq
    with something like "make COPTS=-DNO_SCRIPT" will do the trick.
-
-NO_NETTLE_ECC
-   Don't include the ECDSA cypher in DNSSEC validation. Needed for older Nettle versions.
 NO_GMP
    Don't use and link against libgmp, Useful if nettle is built with --enable-mini-gmp.
 
@@ -184,7 +178,6 @@ RESOLVFILE
 /* #define HAVE_LIBIDN2 */
 /* #define HAVE_CONNTRACK */
 /* #define HAVE_DNSSEC */
-#define HAVE_REGEX
 
 
 /* Default locations for important system files. */
@@ -398,10 +391,6 @@ static char *compile_opts =
 "no-"
 #endif
 "DBus "
-#ifndef HAVE_REGEX
-"no-"
-#endif
-"regex "
 #ifndef LOCALEDIR
 "no-"
 #endif
