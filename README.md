@@ -2,7 +2,7 @@
 
 Not support for regex ipset yet.
 
-Version: 2.78
+Version: 2.79
 
 Inspired by these repos:
 - [dnsmasq-regexp_2.76](https://github.com/spacedingo/dnsmasq-regexp_2.76)
@@ -18,7 +18,7 @@ Offical dnsmasq:
 
 ## Compile
 
-For Debian/ubuntu:
+For Debian/Ubuntu:
 
 ```
 sudo apt install libpcre3-dev
@@ -33,11 +33,13 @@ make
 ## Config file example
 
 ```
+server=114.114.114.114
+
+server=/qq.com/114.114.114.114#53
+server=/baidu.com/114.114.114.114#53
+
 server=/:.*google.*:/8.8.8.8#53
 server=/:.*facebook.*:/8.8.8.8#53
-
-no-reslov
-no-poll
 
 cache-size=100000
 ```
