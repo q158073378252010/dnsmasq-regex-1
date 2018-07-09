@@ -142,10 +142,6 @@ extern int capget(cap_user_header_t header, cap_user_data_t data);
 #include <priv.h>
 #endif
 
-#ifdef HAVE_REGEX
-#include <pcre.h>
-#endif
-
 #ifdef HAVE_DNSSEC
 #  include <nettle/nettle-meta.h>
 #endif
@@ -245,7 +241,7 @@ struct event_desc {
 #define OPT_DNSSEC_VALID   45
 #define OPT_DNSSEC_TIME    46
 #define OPT_DNSSEC_DEBUG   47
-#define OPT_DNSSEC_NO_SIGN 48 
+#define OPT_DNSSEC_IGN_NS  48 
 #define OPT_LOCAL_SERVICE  49
 #define OPT_LOOP_DETECT    50
 #define OPT_EXTRALOG       51
@@ -254,7 +250,8 @@ struct event_desc {
 #define OPT_MAC_B64        54
 #define OPT_MAC_HEX        55
 #define OPT_TFTP_APREF_MAC 56
-#define OPT_LAST           57
+#define OPT_RAPID_COMMIT   57
+#define OPT_LAST           58
 
 /* extra flags for my_syslog, we use a couple of facilities since they are known 
    not to occupy the same bits as priorities, no matter how syslog.h is set up. */
@@ -504,13 +501,12 @@ union mysockaddr {
 #define SERV_LOOP           8192  /* server causes forwarding loop */
 #define SERV_DO_DNSSEC     16384  /* Validate DNSSEC when using this server */
 #define SERV_GOT_TCP       32768  /* Got some data from the TCP connection */
-#define SERV_IS_REGEX      65536  /* server entry is a regex */
 
 struct serverfd {
   int fd;
   union mysockaddr source_addr;
   char interface[IF_NAMESIZE+1];
-  unsigned int ifindex, used;
+  unsigned int ifindex, used, preallocated;
   struct serverfd *next;
 };
 
@@ -531,10 +527,6 @@ struct server {
   u32 uid;
 #endif
   struct server *next; 
-#ifdef HAVE_REGEX
-  pcre *regex;
-  pcre_extra *pextra;
-#endif
 };
 
 struct ipsets {

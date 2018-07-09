@@ -147,38 +147,11 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
       }
     else if (serv->flags & SERV_HAS_DOMAIN)
       {
-	unsigned int domainlen = matchlen;
-	int serverhit = 0;
-
-#ifdef HAVE_REGEX
-	if (serv->flags & SERV_IS_REGEX)
-	  {
-	    int captcount = 0;
-	    if (pcre_fullinfo(serv->regex, serv->pextra, PCRE_INFO_CAPTURECOUNT, &captcount) == 0)
-	      {
-		/* C99 dyn-array, or alloca must be used */
-		int ovect[(captcount + 1) * 3];
-		if (pcre_exec(serv->regex, serv->pextra, qdomain, namelen, 0, 0, ovect, (captcount + 1) * 3) > 0)
-		  {
-		    domainlen = (unsigned int) (ovect[1] - ovect[0]);
-		    if (domainlen >= matchlen)
-		      serverhit = 1;
-		  }
-	      }
-	  }
-	else
-#endif
-	  {
-	    char *matchstart;
-	    domainlen = strlen(serv->domain);
-	    matchstart = qdomain + namelen - domainlen;
-	    if (namelen >= domainlen &&
-	        hostname_isequal(matchstart, serv->domain) &&
-	        (domainlen == 0 || namelen == domainlen || *(matchstart-1) == '.' ))
-	       serverhit = 1;
-	  }
-
-	if (serverhit)
+	unsigned int domainlen = strlen(serv->domain);
+	char *matchstart = qdomain + namelen - domainlen;
+	if (namelen >= domainlen &&
+	    hostname_isequal(matchstart, serv->domain) &&
+	    (domainlen == 0 || namelen == domainlen || *(matchstart-1) == '.' ))
 	  {
 	    if ((serv->flags & SERV_NO_REBIND) && norebind)	
 	      *norebind = 1;
@@ -205,11 +178,6 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
 		if (domainlen >= matchlen)
 		  {
 		    *type = serv->flags & (SERV_HAS_DOMAIN | SERV_USE_RESOLV | SERV_NO_REBIND | SERV_DO_DNSSEC);
-#ifdef HAVE_REGEX
-		    if (serv->flags & SERV_IS_REGEX)
-				*domain = qdomain;
-		    else
-#endif
 		    *domain = serv->domain;
 		    matchlen = domainlen;
 		    if (serv->flags & SERV_NO_ADDR)
@@ -259,27 +227,6 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
       *domain = NULL;
     }
   return  flags;
-}
-
-static int match_domain_for_forward(char *domain, struct server *serv)
-{
-  int ret_val = 0;
-  if(serv->flags & SERV_IS_REGEX)
-    {
-#ifdef HAVE_REGEX
-      int captcount = 0;
-      if (pcre_fullinfo(serv->regex, serv->pextra, PCRE_INFO_CAPTURECOUNT, &captcount) == 0)
-	{
-	  /* C99 dyn-array, or alloca must be used */
-	  int ovect[(captcount + 1) * 3];
-	  ret_val = pcre_exec(serv->regex, serv->pextra, domain,
-	                      strlen(domain), 0, 0, ovect, (captcount + 1) * 3) > 0;
-	}
-#endif
-    }
-  else
-    ret_val = hostname_isequal(domain, serv->domain);
-  return ret_val;
 }
 
 static int forward_query(int udpfd, union mysockaddr *udpaddr,
@@ -360,12 +307,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 #endif
 
       /* retry on existing query, send to all available servers  */
-#ifdef HAVE_REGEX
-      if(forward->sentto->flags & SERV_IS_REGEX)
-          domain = daemon->namebuff;
-      else
-#endif
-          domain = forward->sentto->domain;
+      domain = forward->sentto->domain;
       forward->sentto->failed_queries++;
       if (!option_bool(OPT_ORDER))
 	{
@@ -503,7 +445,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
 	     must be NULL also. */
 	  
 	  if (type == (start->flags & SERV_TYPE) &&
-	      (type != SERV_HAS_DOMAIN || match_domain_for_forward(domain, start)) &&
+	      (type != SERV_HAS_DOMAIN || hostname_isequal(domain, start->domain)) &&
 	      !(start->flags & (SERV_LITERAL_ADDRESS | SERV_LOOP)))
 	    {
 	      int fd;
@@ -977,7 +919,7 @@ void reply_query(int fd, int family, time_t now)
 		    status = dnssec_validate_ds(now, header, n, daemon->namebuff, daemon->keyname, forward->class);
 		  else
 		    status = dnssec_validate_reply(now, header, n, daemon->namebuff, daemon->keyname, &forward->class, 
-						   option_bool(OPT_DNSSEC_NO_SIGN) && (server->flags & SERV_DO_DNSSEC),
+						   !option_bool(OPT_DNSSEC_IGN_NS) && (server->flags & SERV_DO_DNSSEC),
 						   NULL, NULL);
 		}
 	      
@@ -1562,7 +1504,7 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
 	new_status = dnssec_validate_ds(now, header, n, name, keyname, class);
       else 
 	new_status = dnssec_validate_reply(now, header, n, name, keyname, &class,
-					   option_bool(OPT_DNSSEC_NO_SIGN) && (server->flags & SERV_DO_DNSSEC),
+					   !option_bool(OPT_DNSSEC_IGN_NS) && (server->flags & SERV_DO_DNSSEC),
 					   NULL, NULL);
       
       if (new_status != STAT_NEED_DS && new_status != STAT_NEED_KEY)
