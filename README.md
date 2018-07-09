@@ -2,11 +2,10 @@
 
 Not support for regex ipset yet.
 
-Version: 2.79
+Version: 2.80test2
 
 Inspired by these repos:
 - [dnsmasq-regexp_2.76](https://github.com/spacedingo/dnsmasq-regexp_2.76)
-- [dnsmasq-regexp_2.78](https://github.com/spacedingo/dnsmasq-regexp_2.78)
 - [dnsmasq-regex](https://github.com/cuckoohello/dnsmasq-regex)
 
 Original regex patch for dnsmasq 2.63
@@ -32,17 +31,7 @@ make
 
 ## Config file example
 
-```
-server=114.114.114.114
-
-server=/qq.com/114.114.114.114#53
-server=/baidu.com/114.114.114.114#53
-
-server=/:.*google.*:/8.8.8.8#53
-server=/:.*facebook.*:/8.8.8.8#53
-
-cache-size=100000
-```
+[dnsmasq\_regex\_test.conf](/dnsmasq_regex_test.conf)
 
 ## Openwrt/LEDE package
 
